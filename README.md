@@ -1,0 +1,38 @@
+# Crypto Bot
+
+Bot di trading automatico su **conto demo Alpaca** (soldi virtuali). Gira gratis su
+GitHub Actions una volta all'ora, senza PC acceso, e alle 21:00 manda un report
+su Telegram tramite il bot di Jarvis.
+
+## Strategia
+
+Breakout con filtro di trend, solo long, candele da 1 ora, paniere di 10 crypto in USD.
+
+- **Entrata**: chiusura sopra il massimo delle 120 ore precedenti, sopra la media a 700 ore,
+  e BTC sopra la sua media a 700 ore.
+- **Uscita**: chandelier stop = massimo delle ultime 22 ore − 6 × ATR(22).
+- **Size**: ~1% del conto a rischio per operazione, max 15% per coin, max 6 posizioni.
+
+Backtest ott 2025 → ott 2026 (anno ribassista, paniere −40%): circa −4%, max drawdown ~36%,
+109 operazioni. I risultati passati non garantiscono quelli futuri.
+
+I parametri sono in cima a `bot.py`.
+
+## Setup
+
+1. Crea un account paper su https://alpaca.markets e genera le API key **Paper**.
+2. Crea un repository **privato** su GitHub e fai il push di questa cartella.
+3. In *Settings → Secrets and variables → Actions* aggiungi:
+   `ALPACA_KEY_ID`, `ALPACA_SECRET_KEY`, `TELEGRAM_BOT_TOKEN` (quello di Jarvis), `TELEGRAM_CHAT_ID`.
+4. In *Actions → Crypto Bot → Run workflow* lancia una prova con "Simula" e "Invia subito il report".
+
+## Esecuzione manuale locale
+
+```
+set ALPACA_KEY_ID=...
+set ALPACA_SECRET_KEY=...
+set TELEGRAM_BOT_TOKEN=...
+set TELEGRAM_CHAT_ID=...
+set DRY_RUN=1
+py bot.py
+```
