@@ -20,6 +20,7 @@ TELEGRAM_CHAT_ID. Opzionali: DRY_RUN=1 (non invia ordini), FORCE_REPORT=1.
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -49,6 +50,8 @@ TZ = ZoneInfo("Europe/Rome")
 TRADING_URL = "https://paper-api.alpaca.markets"
 DATA_URL = "https://data.alpaca.markets"
 STATE_FILE = Path(__file__).with_name("state.json")
+# Jarvis (Render) riceve ogni ora lo stato del conto per il tasto "📈 Crypto"
+JARVIS_URL = os.environ.get("JARVIS_URL", "https://jarvis-let1.onrender.com")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
@@ -231,7 +234,7 @@ def _pct(x: float) -> str:
     return f"{x:+.2f}%".replace(".", ",")
 
 
-def build_report(signals: dict[str, dict]) -> str:
+def build_report(signals: dict[str, dict], title: str | None = None) -> str:
     account = api("GET", "/v2/account")
     equity = float(account["equity"])
     cash = float(account["cash"])
@@ -255,7 +258,7 @@ def build_report(signals: dict[str, dict]) -> str:
     fills = api("GET", "/v2/account/activities/FILL", params={"after": since, "direction": "asc"})
 
     today = datetime.now(TZ).strftime("%d/%m/%Y")
-    lines = [f"<b>📈 Crypto Bot — report del {today}</b>", ""]
+    lines = [f"<b>{title or f'📈 Crypto Bot — report del {today}'}</b>", ""]
     lines.append(f"Saldo: <b>{_money(equity)}</b> (liquidità {_money(cash)})")
     if day_change is not None:
         lines.append(f"Ultime 24h: {_money(day_change)} ({_pct(day_change / (equity - day_change) * 100)})")
@@ -306,6 +309,23 @@ def maybe_send_report(signals: dict[str, dict]) -> None:
         save_state(state)
 
 
+def push_status_to_jarvis(signals: dict[str, dict]) -> None:
+    """Manda a Jarvis lo stato attuale (testo semplice, senza tag HTML)."""
+    text = re.sub(r"</?[bi]>", "", build_report(signals, title="📈 Crypto Bot — conto demo"))
+    try:
+        # Render free si addormenta: il primo colpo puo' metterci ~1 minuto a svegliarlo
+        r = requests.post(
+            f"{JARVIS_URL}/crypto/{os.environ['TELEGRAM_BOT_TOKEN'].strip()}",
+            json={"text": text},
+            timeout=90,
+        )
+        r.raise_for_status()
+        log.info("Stato inviato a Jarvis")
+    except requests.RequestException as e:
+        # non blocca il trading: al prossimo giro riprova
+        log.warning("Jarvis non raggiungibile: %s", e)
+
+
 def main() -> int:
     symbols = tradable_symbols()
     bars = fetch_bars(symbols)
@@ -318,6 +338,7 @@ def main() -> int:
         else:
             log.info("%-9s storico insufficiente", sym)
     maybe_send_report(signals)
+    push_status_to_jarvis(signals)
     return 0
 
 
