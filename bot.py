@@ -374,7 +374,58 @@ def seconds_to_next_check() -> float:
     return (nxt - now).total_seconds()
 
 
+def wait_for_fill(order_id: str, timeout: int = 60) -> dict:
+    deadline = time.monotonic() + timeout
+    while True:
+        order = api("GET", f"/v2/orders/{order_id}")
+        if order["status"] in ("filled", "canceled", "expired", "rejected") or time.monotonic() > deadline:
+            return order
+        time.sleep(2)
+
+
+def test_order(symbol: str = "BTC/USD", notional: float = 100.0) -> int:
+    """Prova end-to-end sul conto demo: compra `notional`$ di `symbol`, verifica
+    l'esecuzione, rivende subito e manda l'esito su Telegram."""
+    pos_symbol = to_position_symbol(symbol)
+    if any(p["symbol"] == pos_symbol for p in api("GET", "/v2/positions")):
+        send_telegram(f"🧪 Prova ordine annullata: c'e' gia' una posizione aperta su {symbol} "
+                      "della strategia, non la tocco.")
+        return 0
+    lines = ["<b>🧪 Prova ordine — conto demo</b>", ""]
+    ok = False
+    try:
+        buy = api("POST", "/v2/orders", json={
+            "symbol": symbol, "notional": f"{notional:.2f}",
+            "side": "buy", "type": "market", "time_in_force": "gtc",
+        })
+        buy = wait_for_fill(buy["id"])
+        log.info("Acquisto: %s", buy)
+        if buy["status"] != "filled":
+            lines.append(f"❌ Acquisto non eseguito (stato: {buy['status']})")
+        else:
+            buy_px = float(buy["filled_avg_price"])
+            lines.append(f"✅ Acquisto eseguito: {float(buy['filled_qty']):.8f} {symbol} a {buy_px:,.2f}$")
+            sell = api("DELETE", f"/v2/positions/{pos_symbol}")
+            sell = wait_for_fill(sell["id"])
+            log.info("Vendita: %s", sell)
+            if sell["status"] != "filled":
+                lines.append(f"❌ Vendita non eseguita (stato: {sell['status']}): chiudi la posizione a mano")
+            else:
+                sell_px = float(sell["filled_avg_price"])
+                pl = (sell_px - buy_px) * float(sell["filled_qty"])
+                lines.append(f"✅ Vendita eseguita a {sell_px:,.2f}$ (risultato {_money(pl)}, commissioni incluse nel prezzo)")
+                ok = True
+    except RuntimeError as e:
+        lines.append(f"❌ Errore: {e}")
+    lines += ["", "Il bot riesce a comprare e vendere da solo." if ok else "Qualcosa non va: guardo il log."]
+    send_telegram("\n".join(lines))
+    log.info("\n".join(lines))
+    return 0 if ok else 1
+
+
 def main() -> int:
+    if os.environ.get("TEST_ORDER") == "1":
+        return test_order()
     # LOOP_MINUTES > 0: resta acceso e controlla ogni ora finche' non scade il
     # tempo. Serve perche' GitHub salta molti avvii programmati: cosi' basta
     # che ne parta uno ogni ~6 ore per coprire tutte le ore.

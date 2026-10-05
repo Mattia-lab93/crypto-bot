@@ -1,0 +1,31 @@
+name: Prova ordine
+
+# Avvio manuale: compra 100$ di BTC sul conto demo, verifica l'esecuzione,
+# rivende subito e manda l'esito su Telegram. Workflow separato (nessun
+# concurrency group) cosi' non resta in coda dietro al job da 6 ore.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Compra e rivendi 100$ di BTC
+        env:
+          ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_ORDER: "1"
+          PYTHONUNBUFFERED: "1"
+        run: python bot.py
