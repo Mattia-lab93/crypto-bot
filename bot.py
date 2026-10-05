@@ -292,8 +292,6 @@ def maybe_send_report(signals: dict[str, dict]) -> None:
         return
     report = build_report(signals)
     log.info("Report:\n%s", report)
-    if DRY_RUN:
-        return
     send_telegram(report)
     if not force:
         state["last_report_date"] = today
