@@ -1,7 +1,8 @@
 # Crypto Bot
 
 Bot di trading automatico su **conto demo Alpaca** (soldi virtuali). Gira gratis su
-GitHub Actions una volta all'ora, senza PC acceso, e alle 21:00 manda un report
+GitHub Actions (repo pubblico, minuti illimitati): ogni job resta acceso ~6 ore e
+controlla il mercato ogni ora, perche' GitHub salta molti avvii programmati, e alle 21:00 manda un report
 su Telegram tramite il bot di Jarvis.
 
 ## Strategia

@@ -21,7 +21,9 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -307,6 +309,27 @@ def maybe_send_report(signals: dict[str, dict]) -> None:
     if not force:
         state["last_report_date"] = today
         save_state(state)
+        commit_state()
+
+
+def commit_state() -> None:
+    """Su GitHub Actions salva subito state.json nel repo: se il job viene
+    interrotto prima della fine, il report non viene rimandato due volte."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    cmds = [
+        ["git", "config", "user.name", "crypto-bot"],
+        ["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"],
+        ["git", "add", "state.json"],
+        ["git", "commit", "-m", "Report giornaliero inviato"],
+        ["git", "pull", "--rebase", "-q"],
+        ["git", "push", "-q"],
+    ]
+    for cmd in cmds:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            log.warning("%s fallito: %s", " ".join(cmd), r.stderr.strip())
+            return
 
 
 def push_status_to_jarvis(signals: dict[str, dict]) -> None:
@@ -326,7 +349,7 @@ def push_status_to_jarvis(signals: dict[str, dict]) -> None:
         log.warning("Jarvis non raggiungibile: %s", e)
 
 
-def main() -> int:
+def run_cycle() -> None:
     symbols = tradable_symbols()
     bars = fetch_bars(symbols)
     signals = run_strategy(symbols, bars)
@@ -339,7 +362,37 @@ def main() -> int:
             log.info("%-9s storico insufficiente", sym)
     maybe_send_report(signals)
     push_status_to_jarvis(signals)
-    return 0
+
+
+def seconds_to_next_check() -> float:
+    """Secondi fino al prossimo HH:07 UTC (2 minuti dopo la chiusura della
+    candela oraria, per avere i dati gia' pubblicati)."""
+    now = datetime.now(timezone.utc)
+    nxt = now.replace(minute=7, second=0, microsecond=0)
+    if nxt <= now:
+        nxt += timedelta(hours=1)
+    return (nxt - now).total_seconds()
+
+
+def main() -> int:
+    # LOOP_MINUTES > 0: resta acceso e controlla ogni ora finche' non scade il
+    # tempo. Serve perche' GitHub salta molti avvii programmati: cosi' basta
+    # che ne parta uno ogni ~6 ore per coprire tutte le ore.
+    loop_minutes = int(os.environ.get("LOOP_MINUTES") or 0)
+    deadline = time.monotonic() + loop_minutes * 60
+    failures = 0
+    while True:
+        try:
+            run_cycle()
+        except Exception:
+            failures += 1
+            log.exception("Ciclo fallito")
+        wait = seconds_to_next_check()
+        if time.monotonic() + wait >= deadline:
+            break
+        log.info("Prossimo controllo tra %d minuti", wait // 60)
+        time.sleep(wait)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

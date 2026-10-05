@@ -2,7 +2,10 @@ name: Crypto Bot
 
 on:
   schedule:
-    # ogni ora al minuto 7 (evita il picco di carico di GitHub allo scoccare dell'ora)
+    # GitHub salta spesso gli avvii programmati: ogni job resta acceso ~5h40
+    # e controlla il mercato ogni ora, quindi basta che ne parta uno ogni
+    # tanto. Gli avvii orari che arrivano mentre un job e' attivo restano in
+    # coda (concurrency) e partono appena finisce: copertura continua.
     - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
@@ -12,6 +15,10 @@ on:
         default: false
       dry_run:
         description: "Simula senza inviare ordini"
+        type: boolean
+        default: false
+      loop:
+        description: "Resta acceso ~6 ore (altrimenti un solo controllo)"
         type: boolean
         default: false
 
@@ -25,7 +32,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -44,15 +51,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FORCE_REPORT: ${{ inputs.force_report && '1' || '' }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          LOOP_MINUTES: ${{ (github.event_name == 'schedule' || inputs.loop) && '340' || '0' }}
+          PYTHONUNBUFFERED: "1"
         run: python bot.py
-
-      # Salva la data dell'ultimo report, cosi' non viene rimandato nella stessa sera
-      - name: Salva stato
-        run: |
-          if ! git diff --quiet -- state.json; then
-            git config user.name "crypto-bot"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state.json
-            git commit -m "Report giornaliero inviato"
-            git push
-          fi
