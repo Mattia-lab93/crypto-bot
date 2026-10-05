@@ -57,10 +57,18 @@ DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 
 # --- Alpaca ----------------------------------------------------------------
+def _secret(name: str) -> str:
+    value = os.environ[name].strip()
+    if not value.isascii() or any(c.isspace() for c in value):
+        raise RuntimeError(f"{name} contiene caratteri non validi (es. '…' o spazi): "
+                           "ricopiala intera col pulsante di copia e aggiorna il secret")
+    return value
+
+
 def _headers() -> dict:
     return {
-        "APCA-API-KEY-ID": os.environ["ALPACA_KEY_ID"],
-        "APCA-API-SECRET-KEY": os.environ["ALPACA_SECRET_KEY"],
+        "APCA-API-KEY-ID": _secret("ALPACA_KEY_ID"),
+        "APCA-API-SECRET-KEY": _secret("ALPACA_SECRET_KEY"),
     }
 
 
