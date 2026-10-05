@@ -387,6 +387,7 @@ def main() -> int:
         except Exception:
             failures += 1
             log.exception("Ciclo fallito")
+        os.environ.pop("FORCE_REPORT", None)  # il report forzato vale solo per il primo giro
         wait = seconds_to_next_check()
         if time.monotonic() + wait >= deadline:
             break
