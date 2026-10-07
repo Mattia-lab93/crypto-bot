@@ -7,10 +7,12 @@ su Telegram tramite il bot di Jarvis.
 
 ## Strategia
 
-Breakout con filtro di trend, solo long, candele da 1 ora, paniere di 10 crypto in USD.
+Breakout con filtro di trend, solo long, candele da 1 ora, paniere di 13 crypto in USD:
+BTC, ETH, SOL, LINK, UNI, CRV, SUSHI, ADA, ARB, FIL, GRT, RENDER, XRP (scelte per spread
+basso su Alpaca e risultati non negativi in entrambe le meta' dell'ultimo anno).
 
 - **Entrata**: chiusura sopra il massimo delle 120 ore precedenti, sopra la media a 700 ore,
-  e BTC sopra la sua media a 700 ore.
+  e BTC sopra la sua media a 700 ore e a 168 ore (ultima settimana).
 - **Uscita**: chandelier stop = massimo delle ultime 22 ore − 6 × ATR(22).
 - **Size**: ~1% del conto a rischio per operazione, max 15% per coin, max 6 posizioni.
 
@@ -37,3 +39,8 @@ set TELEGRAM_CHAT_ID=...
 set DRY_RUN=1
 py bot.py
 ```
+
+## Registri
+
+- `trades.csv`: ogni acquisto e vendita del bot.
+- `equity.csv`: saldo di ogni sera, al momento del report.

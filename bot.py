@@ -31,9 +31,13 @@ from zoneinfo import ZoneInfo
 import requests
 
 # --- Parametri della strategia ---------------------------------------------
+# Scelto l'8/10/2026: coin con spread basso su Alpaca (costo nascosto a ogni
+# operazione), volumi decenti e niente risultati negativi in entrambe le meta'
+# dell'ultimo anno. Esclusi LTC/AVAX/BCH (spread ~0,57%), DOGE/DOT/AAVE
+# (negativi sia nella 1a che nella 2a meta'), meme/illiquidi (TRUMP, POL, YFI...).
 BASKET = [
-    "BTC/USD", "ETH/USD", "SOL/USD", "LTC/USD", "LINK/USD",
-    "AVAX/USD", "DOGE/USD", "DOT/USD", "UNI/USD", "AAVE/USD",
+    "BTC/USD", "ETH/USD", "SOL/USD", "LINK/USD", "UNI/USD", "CRV/USD", "SUSHI/USD",
+    "ADA/USD", "ARB/USD", "FIL/USD", "GRT/USD", "RENDER/USD", "XRP/USD",
 ]
 BREAKOUT_BARS = 120
 TREND_SMA_BARS = 700
@@ -45,6 +49,7 @@ MAX_POSITIONS = 6
 MIN_ORDER_USD = 10.0
 HISTORY_HOURS = 800  # margine sopra le 700 candele della media lenta
 REGIME_SYMBOL = "BTC/USD"
+REGIME_FAST_BARS = 168  # BTC deve stare anche sopra la media dell'ultima settimana
 
 REPORT_HOUR = 21
 TZ = ZoneInfo("Europe/Rome")
@@ -52,6 +57,9 @@ TZ = ZoneInfo("Europe/Rome")
 TRADING_URL = "https://paper-api.alpaca.markets"
 DATA_URL = "https://data.alpaca.markets"
 STATE_FILE = Path(__file__).with_name("state.json")
+# Registro operazioni e saldo serale, salvati nel repo per le analisi
+TRADES_FILE = Path(__file__).with_name("trades.csv")
+EQUITY_FILE = Path(__file__).with_name("equity.csv")
 # Jarvis (Render) riceve ogni ora lo stato del conto per il tasto "📈 Crypto"
 JARVIS_URL = os.environ.get("JARVIS_URL", "https://jarvis-let1.onrender.com")
 
@@ -141,6 +149,7 @@ def analyze(rows: list[dict]) -> dict | None:
         "atr": atr,
         "breakout_level": breakout_level,
         "sma": sma,
+        "sma_fast": sum(closes[-REGIME_FAST_BARS:]) / REGIME_FAST_BARS,
         "stop": stop,
         "entry": close > breakout_level and close > sma and close > stop,
         "exit": close < stop,
@@ -151,6 +160,24 @@ def analyze(rows: list[dict]) -> dict | None:
 # --- Trading ---------------------------------------------------------------
 def to_position_symbol(symbol: str) -> str:
     return symbol.replace("/", "")
+
+
+def append_csv(path: Path, header: str, row: list) -> None:
+    new = not path.exists()
+    with path.open("a", encoding="utf-8") as f:
+        if new:
+            f.write(header + "\n")
+        f.write(",".join(str(x) for x in row) + "\n")
+
+
+def log_trade(symbol: str, side: str, usd: float, sig: dict, reason: str) -> None:
+    if DRY_RUN:
+        return
+    append_csv(
+        TRADES_FILE, "data_utc,simbolo,lato,importo_usd,prezzo,stop,motivo",
+        [datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), symbol, side,
+         f"{usd:.2f}", f"{sig['close']:.6g}", f"{sig['stop']:.6g}", reason],
+    )
 
 
 def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, dict]:
@@ -168,16 +195,18 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
             log.info("USCITA %s: close %.4f < stop %.4f", sym, sig["close"], sig["stop"])
             if not DRY_RUN:
                 api("DELETE", f"/v2/positions/{to_position_symbol(sym)}")
-                cash += float(positions[to_position_symbol(sym)]["market_value"])
+                value = float(positions[to_position_symbol(sym)]["market_value"])
+                cash += value
+                log_trade(sym, "vendita", value, sig, "stop")
             held.remove(sym)
 
     regime = signals.get(REGIME_SYMBOL)
-    if not regime or regime["close"] <= regime["sma"]:
-        log.info("BTC sotto la media a %d ore: nessuna nuova entrata", TREND_SMA_BARS)
+    if not regime or regime["close"] <= regime["sma"] or regime["close"] <= regime["sma_fast"]:
+        log.info("BTC sotto la media a %d o %d ore: nessuna nuova entrata", TREND_SMA_BARS, REGIME_FAST_BARS)
         return signals
 
     candidates = sorted(
-        (s for s in symbols if s not in held and signals[s] and signals[s]["entry"]),
+        (s for s in symbols if s in BASKET and s not in held and signals[s] and signals[s]["entry"]),
         key=lambda s: signals[s]["strength"],
         reverse=True,
     )
@@ -201,6 +230,7 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
                 "type": "market",
                 "time_in_force": "gtc",
             })
+            log_trade(sym, "acquisto", notional, sig, "breakout")
         cash -= notional
 
     return signals
@@ -290,6 +320,21 @@ def build_report(signals: dict[str, dict], title: str | None = None) -> str:
         value = float(f["qty"]) * float(f["price"])
         lines.append(f"• {when:%H:%M} {side} {f['symbol']} — {_money(value)} a {float(f['price']):.4g}")
 
+    # Quanto manca al segnale di acquisto: spiega perche' il bot non compra
+    regime = signals.get(REGIME_SYMBOL)
+    if regime:
+        ok = regime["close"] > regime["sma"] and regime["close"] > regime.get("sma_fast", 0)
+        lines += ["", f"<b>Filtro BTC</b>: {'via libera ✅' if ok else 'acquisti bloccati ⛔ (BTC in calo)'}"]
+    waiting = sorted(
+        ((s, sig["breakout_level"] / sig["close"] - 1) for s, sig in signals.items()
+         if sig and to_position_symbol(s) not in {p["symbol"] for p in positions}),
+        key=lambda x: x[1],
+    )
+    if waiting:
+        lines += ["", "<b>Distanza dal segnale di acquisto</b>"]
+        lines += [f"• {s.split('/')[0]}: {_pct(d * 100)}" if d > 0 else f"• {s.split('/')[0]}: sopra il livello"
+                  for s, d in waiting]
+
     lines += ["", "<i>Conto demo Alpaca — soldi virtuali.</i>"]
     return "\n".join(lines)
 
@@ -307,21 +352,27 @@ def maybe_send_report(signals: dict[str, dict]) -> None:
     log.info("Report:\n%s", report)
     send_telegram(report)
     if not force:
+        account = api("GET", "/v2/account")
+        append_csv(EQUITY_FILE, "data,saldo_usd,liquidita_usd,posizioni",
+                   [today, account["equity"], account["cash"], len(api("GET", "/v2/positions"))])
         state["last_report_date"] = today
         save_state(state)
         commit_state()
 
 
-def commit_state() -> None:
+def commit_state(message: str = "Report giornaliero inviato") -> None:
     """Su GitHub Actions salva subito state.json nel repo: se il job viene
     interrotto prima della fine, il report non viene rimandato due volte."""
     if os.environ.get("GITHUB_ACTIONS") != "true":
         return
+    if not subprocess.run(["git", "status", "--porcelain", "--", "state.json", "trades.csv", "equity.csv"],
+                          capture_output=True, text=True).stdout.strip():
+        return
     cmds = [
         ["git", "config", "user.name", "crypto-bot"],
         ["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"],
-        ["git", "add", "state.json"],
-        ["git", "commit", "-m", "Report giornaliero inviato"],
+        ["git", "add", "--", *[f for f in ("state.json", "trades.csv", "equity.csv") if Path(f).exists()]],
+        ["git", "commit", "-m", message],
         ["git", "pull", "--rebase", "-q"],
         ["git", "push", "-q"],
     ]
@@ -351,15 +402,21 @@ def push_status_to_jarvis(signals: dict[str, dict]) -> None:
 
 def run_cycle() -> None:
     symbols = tradable_symbols()
+    # posizioni aperte su coin uscite dal paniere: continuo a gestirne lo stop
+    for p in api("GET", "/v2/positions"):
+        sym = p["symbol"][:-3] + "/USD" if p["symbol"].endswith("USD") and "/" not in p["symbol"] else p["symbol"]
+        if sym not in symbols:
+            symbols.append(sym)
     bars = fetch_bars(symbols)
     signals = run_strategy(symbols, bars)
     for sym, sig in signals.items():
         if sig:
-            log.info("%-9s close %-10.4g breakout %-10.4g sma200 %-10.4g stop %-10.4g %s",
+            log.info("%-9s close %-10.4g breakout %-10.4g sma700 %-10.4g stop %-10.4g %s",
                      sym, sig["close"], sig["breakout_level"], sig["sma"], sig["stop"],
                      "ENTRY" if sig["entry"] else ("EXIT" if sig["exit"] else ""))
         else:
             log.info("%-9s storico insufficiente", sym)
+    commit_state("Operazioni del bot")  # no-op se non ci sono state operazioni
     maybe_send_report(signals)
     push_status_to_jarvis(signals)
 
