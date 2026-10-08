@@ -47,6 +47,12 @@ RISK_PER_TRADE = 0.01
 MAX_POSITION_PCT = 0.15
 MAX_POSITIONS = 6
 MIN_ORDER_USD = 10.0
+# Esecuzione: ordini limite IOC al massimo MAX_SLIPPAGE oltre il prezzo medio, e mai piu'
+# di DEPTH_SHARE della liquidita' disponibile nel book entro quel limite. Il 6/10
+# un ordine a mercato da 15k$ su AVAX ha "scalato" il book pagando +2,6%.
+MAX_SLIPPAGE = 0.005
+EXIT_SLIPPAGE = 0.015  # in uscita conta piu' uscire che risparmiare
+DEPTH_SHARE = 0.8
 HISTORY_HOURS = 800  # margine sopra le 700 candele della media lenta
 REGIME_SYMBOL = "BTC/USD"
 REGIME_FAST_BARS = 168  # BTC deve stare anche sopra la media dell'ultima settimana
@@ -92,8 +98,12 @@ def api(method: str, path: str, **kwargs):
     return r.json() if r.text else None
 
 
+ASSET_INFO: dict[str, dict] = {}
+
+
 def tradable_symbols() -> list[str]:
     assets = api("GET", "/v2/assets", params={"asset_class": "crypto", "status": "active"})
+    ASSET_INFO.update({a["symbol"]: a for a in assets})
     available = {a["symbol"] for a in assets if a.get("tradable")}
     missing = [s for s in BASKET if s not in available]
     if missing:
@@ -162,6 +172,54 @@ def to_position_symbol(symbol: str) -> str:
     return symbol.replace("/", "")
 
 
+def orderbook(symbol: str) -> dict:
+    r = requests.get(f"{DATA_URL}/v1beta3/crypto/us/latest/orderbooks",
+                     params={"symbols": symbol}, timeout=30)
+    r.raise_for_status()
+    return r.json()["orderbooks"][symbol]
+
+
+def _round_down(x: float, step: float) -> float:
+    return int(x / step) * step if step > 0 else x
+
+
+def limit_ioc(symbol: str, side: str, usd: float | None = None, qty: float | None = None) -> dict | None:
+    """Ordine limite IOC entro MAX_SLIPPAGE dal prezzo medio, dimensionato sulla
+    liquidita' del book. Ritorna l'ordine eseguito (anche parziale) o None."""
+    ob = orderbook(symbol)
+    mid = (ob["a"][0]["p"] + ob["b"][0]["p"]) / 2
+    info = ASSET_INFO.get(symbol, {})
+    qty_step = float(info.get("min_trade_increment") or 0)
+    px_step = float(info.get("price_increment") or 0)
+    if side == "buy":
+        limit = mid * (1 + MAX_SLIPPAGE)
+        depth = sum(lvl["s"] for lvl in ob["a"] if lvl["p"] <= limit)
+        qty = min(usd / limit, depth * DEPTH_SHARE)
+        limit = _round_down(limit, px_step) + px_step if px_step else limit
+    else:
+        limit = mid * (1 - EXIT_SLIPPAGE)
+        depth = sum(lvl["s"] for lvl in ob["b"] if lvl["p"] >= limit)
+        qty = min(qty, depth * DEPTH_SHARE)
+        limit = _round_down(limit, px_step) if px_step else limit
+    qty = _round_down(qty, qty_step)
+    if qty <= 0 or qty * mid < MIN_ORDER_USD:
+        log.info("%s %s saltato: liquidita' nel book insufficiente", side, symbol)
+        return None
+    order = api("POST", "/v2/orders", json={
+        "symbol": symbol, "qty": f"{qty:.10g}", "side": side, "type": "limit",
+        "limit_price": f"{limit:.10g}", "time_in_force": "ioc",
+    })
+    order = wait_for_fill(order["id"], timeout=30)
+    filled = float(order.get("filled_qty") or 0)
+    if filled <= 0:
+        log.info("%s %s non eseguito (stato %s)", side, symbol, order["status"])
+        return None
+    avg = float(order["filled_avg_price"])
+    log.info("%s %s eseguito: %.8g a %.6g (medio %.6g, slippage %+.2f%%)",
+             side, symbol, filled, avg, mid, (avg / mid - 1) * 100)
+    return order
+
+
 def append_csv(path: Path, header: str, row: list) -> None:
     new = not path.exists()
     with path.open("a", encoding="utf-8") as f:
@@ -194,10 +252,12 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
         if sig and sig["exit"]:
             log.info("USCITA %s: close %.4f < stop %.4f", sym, sig["close"], sig["stop"])
             if not DRY_RUN:
-                api("DELETE", f"/v2/positions/{to_position_symbol(sym)}")
-                value = float(positions[to_position_symbol(sym)]["market_value"])
-                cash += value
-                log_trade(sym, "vendita", value, sig, "stop")
+                # se il book non basta per vendere tutto, il resto parte al giro dopo
+                order = limit_ioc(sym, "sell", qty=float(positions[to_position_symbol(sym)]["qty"]))
+                if order:
+                    value = float(order["filled_qty"]) * float(order["filled_avg_price"])
+                    cash += value
+                    log_trade(sym, "vendita", value, sig, "stop")
             held.remove(sym)
 
     regime = signals.get(REGIME_SYMBOL)
@@ -223,13 +283,10 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
             continue
         log.info("ENTRATA %s: %.2f$ a ~%.4f, stop %.4f", sym, notional, sig["close"], sig["stop"])
         if not DRY_RUN:
-            api("POST", "/v2/orders", json={
-                "symbol": sym,
-                "notional": f"{notional:.2f}",
-                "side": "buy",
-                "type": "market",
-                "time_in_force": "gtc",
-            })
+            order = limit_ioc(sym, "buy", usd=notional)
+            if not order:
+                continue
+            notional = float(order["filled_qty"]) * float(order["filled_avg_price"])
             log_trade(sym, "acquisto", notional, sig, "breakout")
         cash -= notional
 
@@ -422,10 +479,10 @@ def run_cycle() -> None:
 
 
 def seconds_to_next_check() -> float:
-    """Secondi fino al prossimo HH:07 UTC (2 minuti dopo la chiusura della
-    candela oraria, per avere i dati gia' pubblicati)."""
+    """Secondi fino al prossimo HH:02 UTC: subito dopo la chiusura della candela
+    oraria, prima che il prezzo scappi dopo un breakout."""
     now = datetime.now(timezone.utc)
-    nxt = now.replace(minute=7, second=0, microsecond=0)
+    nxt = now.replace(minute=2, second=0, microsecond=0)
     if nxt <= now:
         nxt += timedelta(hours=1)
     return (nxt - now).total_seconds()
