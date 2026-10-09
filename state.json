@@ -1,3 +1,10 @@
 {
-  "last_report_date": "2026-10-08"
+  "last_report_date": "2026-10-08",
+  "daily1": {
+    "date": "2026-10-09",
+    "e0": 97732.93,
+    "done": false,
+    "tried": false,
+    "result": "in attesa del segnale"
+  }
 }
