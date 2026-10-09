@@ -19,6 +19,8 @@ TELEGRAM_CHAT_ID. Opzionali: DRY_RUN=1 (non invia ordini), FORCE_REPORT=1.
 
 import json
 import logging
+import math
+import statistics
 import os
 import re
 import subprocess
@@ -55,6 +57,10 @@ EXIT_SLIPPAGE = 0.015  # in uscita conta piu' uscire che risparmiare
 DEPTH_SHARE = 0.8
 HISTORY_HOURS = 800  # margine sopra le 700 candele della media lenta
 REGIME_SYMBOL = "BTC/USD"
+# Volatility targeting (9/10/2026): le nuove posizioni si riducono quando la
+# volatilita' di BTC a 30 giorni supera il 42% annuo (mediana dell'ultimo anno).
+VOL_TARGET = 0.42
+VOL_BARS = 720
 REGIME_FAST_BARS = 168  # BTC deve stare anche sopra la media dell'ultima settimana
 
 REPORT_HOUR = 21
@@ -238,6 +244,18 @@ def log_trade(symbol: str, side: str, usd: float, sig: dict, reason: str) -> Non
     )
 
 
+def vol_scale(btc_rows: list[dict]) -> float:
+    """Fattore 0-1 per le nuove posizioni: VOL_TARGET / volatilita' annua di BTC."""
+    closes = [b["c"] for b in btc_rows[-(VOL_BARS + 1):]]
+    if len(closes) < VOL_BARS:
+        return 1.0
+    rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
+    vol = statistics.pstdev(rets) * math.sqrt(24 * 365)
+    scale = min(1.0, VOL_TARGET / vol) if vol > 0 else 1.0
+    log.info("Volatilita' BTC 30g %.0f%%: posizioni nuove al %.0f%%", vol * 100, scale * 100)
+    return scale
+
+
 def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, dict]:
     account = api("GET", "/v2/account")
     equity = float(account["equity"])
@@ -246,6 +264,17 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
 
     signals = {s: analyze(bars.get(s, [])) for s in symbols}
     held = [s for s in symbols if to_position_symbol(s) in positions]
+    state = load_state()
+    stops = state.setdefault("initial_stops", {})
+
+    # Lo stop puo' scendere (finestra di 22 ore) ma mai sotto quello fissato
+    # all'entrata: cosi' la perdita massima resta ~1% del conto (9/10/2026,
+    # dopo AVAX: stop sceso da 10,75 a 10,25 e perdita 2,2% invece di 1%).
+    for sym in held:
+        sig = signals[sym]
+        if sig and sym in stops:
+            sig["stop"] = max(sig["stop"], stops[sym])
+            sig["exit"] = sig["close"] < sig["stop"]
 
     for sym in list(held):
         sig = signals[sym]
@@ -258,6 +287,9 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
                     value = float(order["filled_qty"]) * float(order["filled_avg_price"])
                     cash += value
                     log_trade(sym, "vendita", value, sig, "stop")
+                    if float(order["filled_qty"]) >= float(positions[to_position_symbol(sym)]["qty"]) * 0.999:
+                        stops.pop(sym, None)
+                        save_state(state)
             held.remove(sym)
 
     regime = signals.get(REGIME_SYMBOL)
@@ -270,12 +302,13 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
         key=lambda s: signals[s]["strength"],
         reverse=True,
     )
+    scale = vol_scale(bars.get(REGIME_SYMBOL, []))
     for sym in candidates[: max(0, MAX_POSITIONS - len(held))]:
         sig = signals[sym]
         stop_distance_pct = (sig["close"] - sig["stop"]) / sig["close"]
         notional = min(
-            equity * RISK_PER_TRADE / stop_distance_pct,
-            equity * MAX_POSITION_PCT,
+            equity * RISK_PER_TRADE * scale / stop_distance_pct,
+            equity * MAX_POSITION_PCT * scale,
             cash * 0.98,  # margine per le commissioni
         )
         if notional < MIN_ORDER_USD:
@@ -288,6 +321,8 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
                 continue
             notional = float(order["filled_qty"]) * float(order["filled_avg_price"])
             log_trade(sym, "acquisto", notional, sig, "breakout")
+            stops[sym] = sig["stop"]
+            save_state(state)
         cash -= notional
 
     return signals
