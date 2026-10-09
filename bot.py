@@ -64,6 +64,9 @@ VOL_BARS = 720
 REGIME_FAST_BARS = 168  # BTC deve stare anche sopra la media dell'ultima settimana
 
 REPORT_HOUR = 21
+# Strategia attiva: "daily1" = +1% al giorno su BTC (daily1.py, dal 9/10/2026,
+# scelta dell'utente); "trend" = trend following orario (run_cycle).
+STRATEGY = "daily1"
 TZ = ZoneInfo("Europe/Rome")
 
 TRADING_URL = "https://paper-api.alpaca.markets"
@@ -358,7 +361,7 @@ def _pct(x: float) -> str:
     return f"{x:+.2f}%".replace(".", ",")
 
 
-def build_report(signals: dict[str, dict], title: str | None = None) -> str:
+def build_report(signals: dict[str, dict], title: str | None = None, extra: list[str] | None = None) -> str:
     account = api("GET", "/v2/account")
     equity = float(account["equity"])
     cash = float(account["cash"])
@@ -427,11 +430,12 @@ def build_report(signals: dict[str, dict], title: str | None = None) -> str:
         lines += [f"• {s.split('/')[0]}: {_pct(d * 100)}" if d > 0 else f"• {s.split('/')[0]}: sopra il livello"
                   for s, d in waiting]
 
+    lines += extra or []
     lines += ["", "<i>Conto demo Alpaca — soldi virtuali.</i>"]
     return "\n".join(lines)
 
 
-def maybe_send_report(signals: dict[str, dict]) -> None:
+def maybe_send_report(signals: dict[str, dict], extra: list[str] | None = None) -> None:
     now = datetime.now(TZ)
     state = load_state()
     today = now.date().isoformat()
@@ -440,7 +444,7 @@ def maybe_send_report(signals: dict[str, dict]) -> None:
     # report parte comunque alla prima esecuzione utile della serata.
     if not force and (now.hour < REPORT_HOUR or state.get("last_report_date") == today):
         return
-    report = build_report(signals)
+    report = build_report(signals, extra=extra)
     log.info("Report:\n%s", report)
     send_telegram(report)
     if not force:
@@ -475,9 +479,9 @@ def commit_state(message: str = "Report giornaliero inviato") -> None:
             return
 
 
-def push_status_to_jarvis(signals: dict[str, dict]) -> None:
+def push_status_to_jarvis(signals: dict[str, dict], extra: list[str] | None = None) -> None:
     """Manda a Jarvis lo stato attuale (testo semplice, senza tag HTML)."""
-    text = re.sub(r"</?[bi]>", "", build_report(signals, title="📈 Crypto Bot — conto demo"))
+    text = re.sub(r"</?[bi]>", "", build_report(signals, title="📈 Crypto Bot — conto demo", extra=extra))
     try:
         # Render free si addormenta: il primo colpo puo' metterci ~1 minuto a svegliarlo
         r = requests.post(
@@ -583,12 +587,16 @@ def main() -> int:
     failures = 0
     while True:
         try:
-            run_cycle()
+            if STRATEGY == "daily1":
+                import daily1
+                daily1.tick()
+            else:
+                run_cycle()
         except Exception:
             failures += 1
             log.exception("Ciclo fallito")
         os.environ.pop("FORCE_REPORT", None)  # il report forzato vale solo per il primo giro
-        wait = seconds_to_next_check()
+        wait = seconds_to_next_check() if STRATEGY != "daily1" else 300 - time.time() % 300 + 20
         if time.monotonic() + wait >= deadline:
             break
         log.info("Prossimo controllo tra %d minuti", wait // 60)

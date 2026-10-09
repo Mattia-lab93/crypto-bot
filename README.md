@@ -5,7 +5,15 @@ GitHub Actions (repo pubblico, minuti illimitati): ogni job resta acceso ~6 ore 
 controlla il mercato ogni ora, perche' GitHub salta molti avvii programmati, e alle 21:00 manda un report
 su Telegram tramite il bot di Jarvis.
 
-## Strategia
+## Strategia attiva: +1% al giorno (dal 9/10/2026)
+
+Vedi `daily1.py`: a mezzanotte fissa il saldo di partenza; all'1:00 compra BTC con tutto
+il conto se la prima ora e' salita di almeno lo 0,2% e BTC e' sopra la media di 20 giorni;
+vendita limite al prezzo che porta il conto a +1%; stop a -3% del saldo del mattino;
+chiusura alle 23:55. Backtest 1 anno con costi reali: -2% (96 combinazioni testate, tutte in
+perdita). Si cambia strategia con `STRATEGY` in cima a `bot.py`.
+
+## Strategia trend following (disattivata)
 
 Breakout con filtro di trend, solo long, candele da 1 ora, paniere di 13 crypto in USD:
 BTC, ETH, SOL, LINK, UNI, CRV, SUSHI, ADA, ARB, FIL, GRT, RENDER, XRP (scelte per spread
