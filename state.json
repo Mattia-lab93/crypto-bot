@@ -3,8 +3,8 @@
   "daily1": {
     "date": "2026-10-10",
     "e0": 97732.93,
-    "done": false,
-    "tried": false,
-    "result": "in attesa del segnale"
+    "done": true,
+    "tried": true,
+    "result": "nessun acquisto (prima ora +0.11%, trend giu)"
   }
 }
