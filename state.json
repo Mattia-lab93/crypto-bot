@@ -10,5 +10,9 @@
   "initial_stops": {
     "BTC/USD": 81237.97072727274
   },
-  "last_position_at": 1791591757.737739
+  "last_position_at": 1791594134.38745,
+  "day_start": {
+    "date": "2026-10-10",
+    "equity": 97705.37
+  }
 }
