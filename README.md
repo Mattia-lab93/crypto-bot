@@ -23,8 +23,10 @@ basso su Alpaca e risultati non negativi in entrambe le meta' dell'ultimo anno).
   e BTC sopra la sua media a 700 ore e a 168 ore (ultima settimana).
 - **Uscita**: chandelier stop = massimo delle ultime 22 ore − 6 × ATR(22), mai sotto lo stop
   fissato all'entrata (cosi' la perdita massima resta ~1% del conto).
-- **Size**: ~2% del conto a rischio per operazione, max 25% per coin, max 6 posizioni; ridotta
+- **Size**: ~2% del conto a rischio per operazione, max 15% per coin, max 6 posizioni; ridotta
   in proporzione quando la volatilita' di BTC a 30 giorni supera il 42% annuo (volatility targeting).
+- **Posizione di riserva** (regola dell'utente): se passano 24 ore senza posizioni, compra il 10%
+  del conto della coin piu' forte degli ultimi 7 giorni tra BTC, ETH e SOL, con lo stesso stop.
 - **Esecuzione**: ordini limite IOC (+0,5% acquisti, −1,5% vendite), max 80% della liquidita' del book.
 
 Backtest ott 2025 → ott 2026 (anno ribassista, paniere −40%): circa −4%, max drawdown ~36%,

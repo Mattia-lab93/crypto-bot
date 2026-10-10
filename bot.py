@@ -48,7 +48,15 @@ CHANDELIER_MULT = 6.0
 # 10/10/2026: rischio dall'1% al 2% per operazione (Kelly stimato 10,9%, un
 # quarto di Kelly 2,7%: 2% lascia margine per l'errore di stima).
 RISK_PER_TRADE = 0.02
-MAX_POSITION_PCT = 0.25
+# 10/10: riportato dal 25% al 15% (col 25% il backtest scendeva da +13,6% a -1%:
+# conto concentrato su poche coin). Con stop ~6% e' questo il limite che conta.
+MAX_POSITION_PCT = 0.15
+# Regola dell'utente (10/10): mai 24 ore senza una posizione aperta. Se succede,
+# il bot compra il 10% del conto della coin piu' forte (7 giorni) tra queste,
+# gestita con lo stesso stop. Costo stimato nel backtest: ~7% di rendimento annuo.
+RESERVE_COINS = ["BTC/USD", "ETH/USD", "SOL/USD"]
+RESERVE_PCT = 0.10
+RESERVE_AFTER_HOURS = 24
 MAX_POSITIONS = 6
 MIN_ORDER_USD = 10.0
 # Esecuzione: ordini limite IOC al massimo MAX_SLIPPAGE oltre il prezzo medio, e mai piu'
@@ -265,7 +273,8 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
     account = api("GET", "/v2/account")
     equity = float(account["equity"])
     cash = float(account["cash"])
-    positions = {p["symbol"]: p for p in api("GET", "/v2/positions")}
+    positions = {p["symbol"]: p for p in api("GET", "/v2/positions")
+                 if float(p["market_value"]) >= MIN_ORDER_USD}
 
     signals = {s: analyze(bars.get(s, [])) for s in symbols}
     held = [s for s in symbols if to_position_symbol(s) in positions]
@@ -297,6 +306,40 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
                         save_state(state)
             held.remove(sym)
 
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if "last_position_at" not in state:
+        # prima volta: parte dall'ultima operazione registrata
+        last = now_ts
+        if TRADES_FILE.exists():
+            rows = TRADES_FILE.read_text(encoding="utf-8").strip().splitlines()[1:]
+            if rows:
+                last = datetime.strptime(rows[-1].split(",")[0], "%Y-%m-%d %H:%M").replace(
+                    tzinfo=timezone.utc).timestamp()
+        state["last_position_at"] = last
+        save_state(state)
+    if held:
+        state["last_position_at"] = now_ts
+        save_state(state)
+    elif now_ts - state.get("last_position_at", now_ts) >= RESERVE_AFTER_HOURS * 3600:
+        def momentum(sym: str) -> float:
+            rows = bars.get(sym) or []
+            return rows[-1]["c"] / rows[-169]["c"] if len(rows) > 169 else 0.0
+        sym = max((c for c in RESERVE_COINS if signals.get(c)), key=momentum, default=None)
+        if sym:
+            sig = signals[sym]
+            log.info("RISERVA %s: 24 ore senza posizioni, compro il %.0f%% del conto",
+                     sym, RESERVE_PCT * 100)
+            if not DRY_RUN:
+                order = limit_ioc(sym, "buy", usd=min(equity * RESERVE_PCT, cash * 0.98))
+                if order:
+                    value = float(order["filled_qty"]) * float(order["filled_avg_price"])
+                    log_trade(sym, "acquisto", value, sig, "riserva 24h")
+                    stops[sym] = sig["stop"]
+                    state["last_position_at"] = now_ts
+                    save_state(state)
+                    held.append(sym)
+                    cash -= value
+
     regime = signals.get(REGIME_SYMBOL)
     if not regime or regime["close"] <= regime["sma"] or regime["close"] <= regime["sma_fast"]:
         log.info("BTC sotto la media a %d o %d ore: nessuna nuova entrata", TREND_SMA_BARS, REGIME_FAST_BARS)
@@ -327,6 +370,7 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
             notional = float(order["filled_qty"]) * float(order["filled_avg_price"])
             log_trade(sym, "acquisto", notional, sig, "breakout")
             stops[sym] = sig["stop"]
+            state["last_position_at"] = datetime.now(timezone.utc).timestamp()
             save_state(state)
         cash -= notional
 
