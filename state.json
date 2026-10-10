@@ -6,5 +6,9 @@
     "done": true,
     "tried": true,
     "result": "nessun acquisto (prima ora +0.11%, trend giu)"
-  }
+  },
+  "initial_stops": {
+    "BTC/USD": 81237.97072727274
+  },
+  "last_position_at": 1791591757.737739
 }
