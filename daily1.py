@@ -3,8 +3,8 @@
 Regole (le migliori tra 96 combinazioni testate su un anno di candele da 15
 minuti; nel backtest -2% annuo con costi reali, quindi attesa in perdita):
   - a mezzanotte (ora italiana) fissa il saldo di partenza della giornata;
-  - all'1:00 compra BTC con tutto il conto se nella prima ora BTC e' salito
-    almeno dello 0,2% e la chiusura di ieri e' sopra la media di 20 giorni;
+  - all'1:00 compra BTC con tutto il conto (dal 10/10 ogni giorno, senza filtri;
+    prima solo se la prima ora saliva dello 0,2% e BTC era sopra la media 20g);
   - mette subito una vendita limite al prezzo che porta il conto a +1%;
   - se il conto scende a -3% rispetto alla mattina vende tutto;
   - alle 23:55 chiude comunque; una sola operazione al giorno.
@@ -21,6 +21,10 @@ SYMBOL = "BTC/USD"
 TARGET = 0.01
 DAY_STOP = 0.03
 ENTRY_MIN_MOVE = 0.002
+# 10/10/2026, su richiesta dell'utente: niente filtri, compra ogni giorno.
+# Nel backtest (compra a inizio giornata) +1% raggiunto nel 43% dei giorni ma
+# -87% sull'anno: attesa forte perdita.
+USE_FILTERS = False
 TREND_DAYS = 20
 MAKER_FEE = 0.0015
 ENTRY_WINDOW = ((1, 0), (1, 45))  # ora italiana
@@ -62,6 +66,8 @@ def entry_signal(now: datetime) -> tuple[bool, str]:
     trend = closes[past[-1]] > sum(closes[d] for d in past) / TREND_DAYS
     move = today_rows[-1]["c"] / today_rows[0]["o"] - 1
     why = f"prima ora {move:+.2%}, trend {'su' if trend else 'giu'}"
+    if not USE_FILTERS:
+        return True, why + " (filtri disattivati)"
     return trend and move > ENTRY_MIN_MOVE, why
 
 

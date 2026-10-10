@@ -8,7 +8,7 @@ su Telegram tramite il bot di Jarvis.
 ## Strategia attiva: +1% al giorno (dal 9/10/2026)
 
 Vedi `daily1.py`: a mezzanotte fissa il saldo di partenza; all'1:00 compra BTC con tutto
-il conto se la prima ora e' salita di almeno lo 0,2% e BTC e' sopra la media di 20 giorni;
+il conto ogni giorno (filtri disattivati dal 10/10, `USE_FILTERS` in `daily1.py`);
 vendita limite al prezzo che porta il conto a +1%; stop a -3% del saldo del mattino;
 chiusura alle 23:55. Backtest 1 anno con costi reali: -2% (96 combinazioni testate, tutte in
 perdita). Si cambia strategia con `STRATEGY` in cima a `bot.py`.
