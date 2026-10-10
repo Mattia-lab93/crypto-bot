@@ -5,7 +5,7 @@ GitHub Actions (repo pubblico, minuti illimitati): ogni job resta acceso ~6 ore 
 controlla il mercato ogni ora, perche' GitHub salta molti avvii programmati, e alle 21:00 manda un report
 su Telegram tramite il bot di Jarvis.
 
-## Strategia attiva: +1% al giorno (dal 9/10/2026)
+## Strategia +1% al giorno (attiva 9-10/10/2026, ora spenta)
 
 Vedi `daily1.py`: a mezzanotte fissa il saldo di partenza; all'1:00 compra BTC con tutto
 il conto ogni giorno (filtri disattivati dal 10/10, `USE_FILTERS` in `daily1.py`);
@@ -13,7 +13,7 @@ vendita limite al prezzo che porta il conto a +1%; stop a -3% del saldo del matt
 chiusura alle 23:55. Backtest 1 anno con costi reali: -2% (96 combinazioni testate, tutte in
 perdita). Si cambia strategia con `STRATEGY` in cima a `bot.py`.
 
-## Strategia trend following (disattivata)
+## Strategia attiva: trend following (dal 10/10/2026, rischio 2% per operazione)
 
 Breakout con filtro di trend, solo long, candele da 1 ora, paniere di 13 crypto in USD:
 BTC, ETH, SOL, LINK, UNI, CRV, SUSHI, ADA, ARB, FIL, GRT, RENDER, XRP (scelte per spread
@@ -23,7 +23,7 @@ basso su Alpaca e risultati non negativi in entrambe le meta' dell'ultimo anno).
   e BTC sopra la sua media a 700 ore e a 168 ore (ultima settimana).
 - **Uscita**: chandelier stop = massimo delle ultime 22 ore − 6 × ATR(22), mai sotto lo stop
   fissato all'entrata (cosi' la perdita massima resta ~1% del conto).
-- **Size**: ~1% del conto a rischio per operazione, max 15% per coin, max 6 posizioni; ridotta
+- **Size**: ~2% del conto a rischio per operazione, max 25% per coin, max 6 posizioni; ridotta
   in proporzione quando la volatilita' di BTC a 30 giorni supera il 42% annuo (volatility targeting).
 - **Esecuzione**: ordini limite IOC (+0,5% acquisti, −1,5% vendite), max 80% della liquidita' del book.
 

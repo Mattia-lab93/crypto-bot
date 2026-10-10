@@ -45,8 +45,10 @@ BREAKOUT_BARS = 120
 TREND_SMA_BARS = 700
 ATR_BARS = 22
 CHANDELIER_MULT = 6.0
-RISK_PER_TRADE = 0.01
-MAX_POSITION_PCT = 0.15
+# 10/10/2026: rischio dall'1% al 2% per operazione (Kelly stimato 10,9%, un
+# quarto di Kelly 2,7%: 2% lascia margine per l'errore di stima).
+RISK_PER_TRADE = 0.02
+MAX_POSITION_PCT = 0.25
 MAX_POSITIONS = 6
 MIN_ORDER_USD = 10.0
 # Esecuzione: ordini limite IOC al massimo MAX_SLIPPAGE oltre il prezzo medio, e mai piu'
@@ -66,7 +68,7 @@ REGIME_FAST_BARS = 168  # BTC deve stare anche sopra la media dell'ultima settim
 REPORT_HOUR = 21
 # Strategia attiva: "daily1" = +1% al giorno su BTC (daily1.py, dal 9/10/2026,
 # scelta dell'utente); "trend" = trend following orario (run_cycle).
-STRATEGY = "daily1"
+STRATEGY = "trend"  # dal 10/10/2026: daily1 perdeva in ogni test (Kelly = 0)
 TZ = ZoneInfo("Europe/Rome")
 
 TRADING_URL = "https://paper-api.alpaca.markets"
@@ -496,6 +498,22 @@ def push_status_to_jarvis(signals: dict[str, dict], extra: list[str] | None = No
         log.warning("Jarvis non raggiungibile: %s", e)
 
 
+def day_target_lines() -> list[str]:
+    """Riga del report: risultato di oggi rispetto all'obiettivo +1% dell'utente
+    (solo informativa, il trend following non insegue l'obiettivo)."""
+    state = load_state()
+    today = datetime.now(TZ).date().isoformat()
+    equity = float(api("GET", "/v2/account")["equity"])
+    day = state.get("day_start", {})
+    if day.get("date") != today:
+        day = {"date": today, "equity": equity}
+        state["day_start"] = day
+        save_state(state)
+    pct = equity / day["equity"] - 1
+    return ["", "<b>Obiettivo +1% al giorno</b>",
+            f"Oggi: {_pct(pct * 100)} (partenza {_money(day['equity'])}) {'✅' if pct >= 0.01 else ''}".rstrip()]
+
+
 def run_cycle() -> None:
     symbols = tradable_symbols()
     # posizioni aperte su coin uscite dal paniere: continuo a gestirne lo stop
@@ -513,8 +531,9 @@ def run_cycle() -> None:
         else:
             log.info("%-9s storico insufficiente", sym)
     commit_state("Operazioni del bot")  # no-op se non ci sono state operazioni
-    maybe_send_report(signals)
-    push_status_to_jarvis(signals)
+    extra = day_target_lines()
+    maybe_send_report(signals, extra=extra)
+    push_status_to_jarvis(signals, extra=extra)
 
 
 def seconds_to_next_check() -> float:
