@@ -306,21 +306,17 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
                         save_state(state)
             held.remove(sym)
 
+    # Regola delle 24 ore: "flat_since" = da quando il conto e' senza posizioni.
+    # Si scrive solo ai cambi di stato, non a ogni controllo.
     now_ts = datetime.now(timezone.utc).timestamp()
-    if "last_position_at" not in state:
-        # prima volta: parte dall'ultima operazione registrata
-        last = now_ts
-        if TRADES_FILE.exists():
-            rows = TRADES_FILE.read_text(encoding="utf-8").strip().splitlines()[1:]
-            if rows:
-                last = datetime.strptime(rows[-1].split(",")[0], "%Y-%m-%d %H:%M").replace(
-                    tzinfo=timezone.utc).timestamp()
-        state["last_position_at"] = last
-        save_state(state)
+    state.pop("last_position_at", None)  # vecchio formato
     if held:
-        state["last_position_at"] = now_ts
+        if state.pop("flat_since", None) is not None:
+            save_state(state)
+    elif "flat_since" not in state:
+        state["flat_since"] = now_ts
         save_state(state)
-    elif now_ts - state.get("last_position_at", now_ts) >= RESERVE_AFTER_HOURS * 3600:
+    elif now_ts - state["flat_since"] >= RESERVE_AFTER_HOURS * 3600:
         def momentum(sym: str) -> float:
             rows = bars.get(sym) or []
             return rows[-1]["c"] / rows[-169]["c"] if len(rows) > 169 else 0.0
@@ -335,7 +331,7 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
                     value = float(order["filled_qty"]) * float(order["filled_avg_price"])
                     log_trade(sym, "acquisto", value, sig, "riserva 24h")
                     stops[sym] = sig["stop"]
-                    state["last_position_at"] = now_ts
+                    state.pop("flat_since", None)
                     save_state(state)
                     held.append(sym)
                     cash -= value
@@ -370,7 +366,7 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
             notional = float(order["filled_qty"]) * float(order["filled_avg_price"])
             log_trade(sym, "acquisto", notional, sig, "breakout")
             stops[sym] = sig["stop"]
-            state["last_position_at"] = datetime.now(timezone.utc).timestamp()
+            state.pop("flat_since", None)
             save_state(state)
         cash -= notional
 
@@ -515,8 +511,9 @@ def commit_state(message: str = "Report giornaliero inviato") -> None:
         ["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"],
         ["git", "add", "--", *[f for f in ("state.json", "trades.csv", "equity.csv") if Path(f).exists()]],
         ["git", "commit", "-m", message],
-        ["git", "pull", "--rebase", "-q"],
-        ["git", "push", "-q"],
+        # il job puo' girare in "detached HEAD": ramo indicato esplicitamente
+        ["git", "pull", "--rebase", "-q", "origin", "main"],
+        ["git", "push", "-q", "origin", "HEAD:main"],
     ]
     for cmd in cmds:
         r = subprocess.run(cmd, capture_output=True, text=True)
