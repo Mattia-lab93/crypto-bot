@@ -7,5 +7,12 @@
   "day_start": {
     "date": "2026-10-11",
     "equity": 97755.45
+  },
+  "daily1": {
+    "date": "2026-10-11",
+    "e0": 97774.7,
+    "done": false,
+    "tried": false,
+    "result": "in attesa del segnale"
   }
 }
