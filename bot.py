@@ -78,7 +78,7 @@ REPORT_HOUR = 21
 # scelta dell'utente); "trend" = trend following orario (run_cycle).
 # 11/10/2026: l'utente vuole una strategia aggressiva da +1% al giorno -> daily1
 # (tutto il conto su BTC ogni giorno). Trend following disponibile con "trend".
-STRATEGY = "daily1"
+STRATEGY = "trend"  # 11/10 sera: daily1 spenta, in arrivo Robot v2 (TQQQ + crypto)
 TZ = ZoneInfo("Europe/Rome")
 
 TRADING_URL = "https://paper-api.alpaca.markets"
