@@ -13,7 +13,15 @@ vendita limite al prezzo che porta il conto a +1%; stop a -3% del saldo del matt
 chiusura alle 23:55. Backtest 1 anno con costi reali: -2% (96 combinazioni testate, tutte in
 perdita). Si cambia strategia con `STRATEGY` in cima a `bot.py`.
 
-## Strategia attiva: trend following (dal 10/10/2026, rischio 2% per operazione)
+## Strategia attiva: Robot v2 (dal 12/10/2026)
+
+`STRATEGY = "v2"` in `bot.py`:
+- **Azioni** (`stocks.py`): se QQQ e' sopra la media dei 200 giorni, tiene TQQQ (Nasdaq 3x) per
+  1,25 volte il saldo (Alpaca chiede il 75% di margine sugli ETF 3x); decide ogni giorno 12
+  minuti prima della chiusura di Wall Street. Backtest dal 2010: ~+34/38% annuo, cali fino a -56/75%.
+- **Crypto**: il trend following qui sotto lavora quando le azioni sono fuori.
+
+## Trend following crypto (parte di Robot v2, rischio 2% per operazione)
 
 Breakout con filtro di trend, solo long, candele da 1 ora, paniere di 13 crypto in USD:
 BTC, ETH, SOL, LINK, UNI, CRV, SUSHI, ADA, ARB, FIL, GRT, RENDER, XRP (scelte per spread

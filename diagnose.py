@@ -8,7 +8,12 @@ import bot
 
 def main() -> None:
     account = bot.api("GET", "/v2/account")
-    print("CONTO:", {k: account[k] for k in ("equity", "cash", "last_equity", "buying_power")})
+    print("CONTO:", {k: account.get(k) for k in ("equity", "cash", "last_equity", "buying_power",
+                                                 "regt_buying_power", "multiplier", "pattern_day_trader")})
+    import stocks
+    print("AZIONI segnale (sopra media, prezzo QQQ, media 200g):", stocks.signal())
+    print("OROLOGIO BORSA:", bot.api("GET", "/v2/clock"))
+    print("TQQQ:", {k: bot.api("GET", "/v2/assets/TQQQ").get(k) for k in ("tradable", "marginable", "fractionable", "shortable")})
     for p in bot.api("GET", "/v2/positions"):
         print("POSIZIONE:", {k: p[k] for k in ("symbol", "qty", "avg_entry_price", "cost_basis",
                                                "market_value", "unrealized_pl")})

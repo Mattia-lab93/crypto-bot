@@ -78,7 +78,9 @@ REPORT_HOUR = 21
 # scelta dell'utente); "trend" = trend following orario (run_cycle).
 # 11/10/2026: l'utente vuole una strategia aggressiva da +1% al giorno -> daily1
 # (tutto il conto su BTC ogni giorno). Trend following disponibile con "trend".
-STRATEGY = "trend"  # 11/10 sera: daily1 spenta, in arrivo Robot v2 (TQQQ + crypto)
+# "v2" (dal 12/10/2026) = azioni (stocks.py: TQQQ x1,25 se QQQ sopra media 200g)
+# + trend following crypto quando le azioni sono fuori.
+STRATEGY = "v2"
 TZ = ZoneInfo("Europe/Rome")
 
 TRADING_URL = "https://paper-api.alpaca.markets"
@@ -312,7 +314,7 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
     # Si scrive solo ai cambi di stato, non a ogni controllo.
     now_ts = datetime.now(timezone.utc).timestamp()
     state.pop("last_position_at", None)  # vecchio formato
-    if held:
+    if held or any(p.get("asset_class") == "us_equity" for p in positions.values()):
         if state.pop("flat_since", None) is not None:
             save_state(state)
     elif "flat_since" not in state:
@@ -341,6 +343,10 @@ def run_strategy(symbols: list[str], bars: dict[str, list[dict]]) -> dict[str, d
     regime = signals.get(REGIME_SYMBOL)
     if not regime or regime["close"] <= regime["sma"] or regime["close"] <= regime["sma_fast"]:
         log.info("BTC sotto la media a %d o %d ore: nessuna nuova entrata", TREND_SMA_BARS, REGIME_FAST_BARS)
+        return signals
+
+    if STRATEGY == "v2" and state.get("stocks", {}).get("on"):
+        log.info("Capitale su TQQQ (Robot v2): nessuna nuova entrata crypto")
         return signals
 
     candidates = sorted(
@@ -557,6 +563,9 @@ def day_target_lines() -> list[str]:
             f"Oggi: {_pct(pct * 100)} (partenza {_money(day['equity'])}) {'✅' if pct >= 0.01 else ''}".rstrip()]
 
 
+STOCK_LINES: list[str] = []
+
+
 def run_cycle() -> None:
     symbols = tradable_symbols()
     # posizioni aperte su coin uscite dal paniere: continuo a gestirne lo stop
@@ -574,7 +583,7 @@ def run_cycle() -> None:
         else:
             log.info("%-9s storico insufficiente", sym)
     commit_state("Operazioni del bot")  # no-op se non ci sono state operazioni
-    extra = day_target_lines()
+    extra = day_target_lines() + (STOCK_LINES if STRATEGY == "v2" else [])
     maybe_send_report(signals, extra=extra)
     push_status_to_jarvis(signals, extra=extra)
 
@@ -638,6 +647,9 @@ def test_order(symbol: str = "BTC/USD", notional: float = 100.0) -> int:
     return 0 if ok else 1
 
 
+LAST_CYCLE: dict = {}
+
+
 def main() -> int:
     if os.environ.get("TEST_ORDER") == "1":
         return test_order()
@@ -652,13 +664,24 @@ def main() -> int:
             if STRATEGY == "daily1":
                 import daily1
                 daily1.tick()
+            elif STRATEGY == "v2":
+                import stocks
+                try:  # un errore sulle azioni non deve fermare le crypto
+                    STOCK_LINES[:] = stocks.tick()
+                except Exception:
+                    failures += 1
+                    log.exception("Modulo azioni fallito")
+                hour = datetime.now(timezone.utc).strftime("%Y-%m-%d %H")
+                if datetime.now(timezone.utc).minute >= 2 and LAST_CYCLE.get("hour") != hour:
+                    LAST_CYCLE["hour"] = hour
+                    run_cycle()
             else:
                 run_cycle()
         except Exception:
             failures += 1
             log.exception("Ciclo fallito")
         os.environ.pop("FORCE_REPORT", None)  # il report forzato vale solo per il primo giro
-        wait = seconds_to_next_check() if STRATEGY != "daily1" else 300 - time.time() % 300 + 20
+        wait = seconds_to_next_check() if STRATEGY == "trend" else 300 - time.time() % 300 + 20
         if time.monotonic() + wait >= deadline:
             break
         log.info("Prossimo controllo tra %d minuti", wait // 60)
