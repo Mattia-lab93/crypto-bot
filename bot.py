@@ -76,7 +76,9 @@ REGIME_FAST_BARS = 168  # BTC deve stare anche sopra la media dell'ultima settim
 REPORT_HOUR = 21
 # Strategia attiva: "daily1" = +1% al giorno su BTC (daily1.py, dal 9/10/2026,
 # scelta dell'utente); "trend" = trend following orario (run_cycle).
-STRATEGY = "trend"  # dal 10/10/2026: daily1 perdeva in ogni test (Kelly = 0)
+# 11/10/2026: l'utente vuole una strategia aggressiva da +1% al giorno -> daily1
+# (tutto il conto su BTC ogni giorno). Trend following disponibile con "trend".
+STRATEGY = "daily1"
 TZ = ZoneInfo("Europe/Rome")
 
 TRADING_URL = "https://paper-api.alpaca.markets"
