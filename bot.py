@@ -570,6 +570,8 @@ def run_cycle() -> None:
     symbols = tradable_symbols()
     # posizioni aperte su coin uscite dal paniere: continuo a gestirne lo stop
     for p in api("GET", "/v2/positions"):
+        if p.get("asset_class") != "crypto":  # TQQQ & co. li gestisce stocks.py
+            continue
         sym = p["symbol"][:-3] + "/USD" if p["symbol"].endswith("USD") and "/" not in p["symbol"] else p["symbol"]
         if sym not in symbols:
             symbols.append(sym)
