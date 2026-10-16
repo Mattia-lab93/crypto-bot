@@ -4,3 +4,4 @@ data_utc,simbolo,lato,importo_usd,prezzo,stop,motivo
 2026-10-10 00:22,BTC/USD,acquisto,9728.39,82550.7,81238,riserva 24h
 2026-10-11 21:48,BTC/USD,vendita,9794.65,83339,0,residuo del giorno prima
 2026-10-12 19:50,TQQQ,acquisto,122218.38,746.07,671.466,QQQ sopra media 200g
+2026-10-16 19:50,TQQQ,vendita,4235.04,709.3,673.617,ribilanciamento leva
