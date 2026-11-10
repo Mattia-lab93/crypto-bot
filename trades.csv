@@ -9,3 +9,4 @@ data_utc,simbolo,lato,importo_usd,prezzo,stop,motivo
 2026-11-06 22:05,ETH/USD,acquisto,5483.38,2237.62,2151.71,riserva 24h
 2026-11-08 22:05,ETH/USD,vendita,5193.54,2125.58,2163.65,stop
 2026-11-09 20:50,TQQQ,acquisto,68483.38,680.11,680.058,QQQ sopra media 200g
+2026-11-10 20:50,TQQQ,vendita,67033.45,675.17,680.311,QQQ sotto media 200g

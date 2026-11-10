@@ -15,9 +15,9 @@
     "result": "in attesa del segnale"
   },
   "stocks": {
-    "date": "2026-11-09",
-    "on": true,
-    "qqq": 680.11,
-    "sma": 680.06
+    "date": "2026-11-10",
+    "on": false,
+    "qqq": 675.17,
+    "sma": 680.31
   }
 }
