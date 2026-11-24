@@ -15,3 +15,4 @@ data_utc,simbolo,lato,importo_usd,prezzo,stop,motivo
 2026-11-19 12:54,SOL/USD,acquisto,2675.78,74.7661,70.1076,riserva 24h
 2026-11-20 21:05,SOL/USD,vendita,2392.65,67.3975,70.1076,stop
 2026-11-22 17:05,SOL/USD,acquisto,4878.31,70.5677,67.9305,riserva 24h
+2026-11-24 00:46,SOL/USD,vendita,4981.59,71.95,79.6855,stop
